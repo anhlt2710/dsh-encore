@@ -7,7 +7,7 @@
 Automatic continuation for [DeepSeek Harness](https://deepseek.com): when a turn is cut off by the
 output-token cap, `dsh-encore` sends the follow-up for you.
 
-[![tests](https://github.com/ltanh2710/dsh-encore/actions/workflows/test.yml/badge.svg)](https://github.com/ltanh2710/dsh-encore/actions/workflows/test.yml)
+[![tests](https://github.com/anhlt2710/dsh-encore/actions/workflows/test.yml/badge.svg)](https://github.com/anhlt2710/dsh-encore/actions/workflows/test.yml)
 ![license](https://img.shields.io/badge/license-MIT-111111)
 ![deps](https://img.shields.io/badge/dependencies-0-111111)
 
@@ -55,7 +55,7 @@ ctx.on('session/event', (session, event) => {
 ## Install
 
 ```sh
-git clone https://github.com/ltanh2710/dsh-encore "$DSH_HOME/plugins/dsh-encore"
+git clone https://github.com/anhlt2710/dsh-encore "$DSH_HOME/plugins/dsh-encore"
 ```
 
 Then add the row to `$DSH_HOME/cordis.patch.yml`:
@@ -86,6 +86,78 @@ Change it in the patch file; `dsh-hmr` reloads live, no restart.
 loop forever and bill you for it. After `maxContinues` consecutive capped turns, `dsh-encore` stops,
 logs a warning, and hands back to you. Any turn that ends normally resets the counter, so the limit
 is "in a row", not "per session".
+
+## Model config and auto-compaction
+
+Two different limits can end a turn, and they are **not** the same thing:
+
+| Limit | What runs out | Who handles it |
+|---|---|---|
+| **Output cap** (`maxTokens`) | the reply is longer than the model may emit in one turn | **this plugin** |
+| **Context window** (`contextWindow`) | the whole conversation no longer fits in the prompt | DSH's built-in auto-compaction |
+
+The notice in the screenshot above — *Output token limit reached* — is the **output cap**. Auto-compaction
+cannot prevent it, because compaction reduces how much history goes *in*, not how much the model may
+write *out*. That is why this plugin exists: compaction and `dsh-encore` cover different failures and
+you generally want both.
+
+A working DSH config for a 300K-context model (`$DSH_HOME/profiles/<profile>/cordis.patch.yml`):
+
+```yaml
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-official
+    model: deepseek-v4.1-flash
+
+- id: llm-deepseek
+  name: "@deepseek-ai/dsh-llm-deepseek-api-key"
+  config:
+    # baseURL omitted — point this at your own endpoint
+    models:
+      - id: deepseek-v4.1-flash
+        name: DeepSeek-V41-Flash
+        contextWindow: 300000     # ← the 300K window
+        maxTokens: 65536          # ← the output cap dsh-encore reacts to
+        inputModalities: [text, image]
+        systemPromptUpdate: in-history
+        toolUpdate: addition-only
+```
+
+`maxTokens` is the value that decides how often you see *Output token limit reached*. Raise it if the
+provider allows; when you cannot, `dsh-encore` is the mitigation.
+
+### Auto-compaction is already on
+
+`dsh-compaction-basic` is mounted by the shipped agent presets (the top-level rows are disabled and the
+preset groups enable them), so compaction runs automatically as token pressure builds, plus `/compact`
+on demand and recovery from a confirmed context overflow. Its default trigger is:
+
+```
+floor(min(W × 0.8, W − O − B))     W = contextWindow, O = maxTokens, B = headroomTokens (65536)
+```
+
+For the 300K config above that is `floor(min(240000, 168928))` = **168,928 tokens**, retaining the newest
+`0.16 × (W − O)` ≈ **37,514 tokens** verbatim. Tune it in the patch:
+
+```yaml
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.8       # window fraction
+    headroomTokens: 65536     # pressure headroom beyond the output reservation
+    retainRatio: 0.16         # recent history kept verbatim
+    auto: true                # false = manual /compact only
+    modelPolicies:            # per-model overrides
+      - provider: deepseek-official
+        model: deepseek-v4.1-flash
+        thresholdRatio: 0.7
+```
+
+Both limits stay configurable independently, which is the point: compaction keeps the *input* fitting,
+`dsh-encore` keeps a cut-off *output* moving.
+
+
 
 ## How it is wired
 

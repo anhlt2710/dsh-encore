@@ -19,7 +19,7 @@ is relative to it, and installing into the wrong home is the most common way to 
 ## 1. Get the files
 
 ```sh
-git clone https://github.com/ltanh2710/dsh-encore "$DSH_HOME/plugins/dsh-encore"
+git clone https://github.com/anhlt2710/dsh-encore "$DSH_HOME/plugins/dsh-encore"
 ```
 
 The repo root **is** the plugin directory, so this one command lands everything where the patch
@@ -165,6 +165,13 @@ If it does not fire, in order of likelihood:
 2. The app predates the patch file — restart it.
 3. `maxContinues` was already exhausted — look for the `hit the output-token cap` warning.
 4. The model finished inside the cap, so nothing was cut off and nothing needed resuming.
+
+If it *never* fires and the model keeps stopping early, check which limit you are actually hitting.
+`dsh-encore` reacts to the **output cap** (`maxTokens` on the model route) — not the **context window**.
+Auto-compaction (`dsh-compaction-basic`, already enabled in the shipped presets) handles the context
+window by summarizing old history, and cannot help with a long reply. The full explanation, the default
+compaction threshold formula, and a 300K-window model config are in
+[README.md → Model config and auto-compaction](README.md#model-config-and-auto-compaction).
 
 ---
 

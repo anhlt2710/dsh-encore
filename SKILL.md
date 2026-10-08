@@ -7,8 +7,11 @@ description: >
   token", "bị cắt giữa chừng", "output token limit reached", "reply was cut off",
   or asks to install, configure, debug or uninstall automatic continuation for
   DSH. Also use when a DSH turn keeps ending mid-answer and the user wants it
-  resumed without typing "continue" by hand. Only for DeepSeek Harness — not for
-  other agents.
+  resumed without typing "continue" by hand, and when the user asks about the
+  output cap (maxTokens) versus the context window, auto-compaction, /compact,
+  thresholdRatio, retainRatio or headroomTokens in DSH — this skill documents
+  both limits and which one dsh-encore actually reacts to. Only for DeepSeek
+  Harness — not for other agents.
 argument-hint: "[install|verify|uninstall]"
 license: MIT
 ---
@@ -33,7 +36,7 @@ the usual cause of a silent no-op.
 The repo root **is** the plugin directory:
 
 ```sh
-git clone https://github.com/ltanh2710/dsh-encore "$DSH_HOME/plugins/dsh-encore"
+git clone https://github.com/anhlt2710/dsh-encore "$DSH_HOME/plugins/dsh-encore"
 ```
 
 Then add one row to `$DSH_HOME/cordis.patch.yml`:
@@ -86,6 +89,53 @@ Other profiles: `dsh web --dump-config | grep -A3 dsh-encore`, where a `name` re
 
 `dsh-hmr` watches the home patch and usually applies it live. If the app was already running *before*
 the patch file existed, restart once.
+
+## Two limits — do not confuse them
+
+The single most common misdiagnosis. A turn can end for two unrelated reasons:
+
+| Limit | What ran out | Handled by |
+|---|---|---|
+| **Output cap** (`maxTokens`) | the reply was longer than the model may emit in one turn | **dsh-encore** |
+| **Context window** (`contextWindow`) | the whole conversation no longer fits in the prompt | DSH auto-compaction (built in) |
+
+If the user sees *Output token limit reached*, that is the **output cap**. Compaction cannot prevent it:
+compaction shrinks what goes *in*, not what the model may write *out*. Do not try to fix a recurring
+output-cap problem by tuning compaction — the setting is `maxTokens` on the model route, and when the
+provider will not allow a larger value, dsh-encore is the mitigation.
+
+Conversely, if the conversation is being summarized and truncated in the *input*, that is compaction
+doing its job, and dsh-encore is irrelevant to it.
+
+### Auto-compaction is already on
+
+`dsh-compaction-basic` ships enabled inside the agent presets (the top-level rows are disabled, the
+preset groups enable them). Default trigger, with `W = contextWindow`, `O = maxTokens`,
+`B = headroomTokens` (65536):
+
+```
+floor(min(W × 0.8, W − O − B))
+```
+
+For a 300K window with a 65536 output cap: `floor(min(240000, 168928))` = **168,928 tokens**, keeping
+the newest `0.16 × (W − O)` ≈ **37,514 tokens** verbatim. Tunable per model:
+
+```yaml
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.8
+    headroomTokens: 65536
+    retainRatio: 0.16
+    auto: true          # false = manual /compact only
+    modelPolicies:
+      - provider: deepseek-official
+        model: deepseek-v4.1-flash
+        thresholdRatio: 0.7
+```
+
+Misconfiguration fails fast at load: both retention forms together, a retention ratio ≥ the threshold
+ratio, unknown settings, or a window where `W − O − B` is not positive all reject the plugin.
 
 ## Tune
 

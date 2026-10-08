@@ -7,7 +7,7 @@
 Automatic continuation for [DeepSeek Harness](https://deepseek.com): when a turn is cut off by the
 output-token cap, `dsh-encore` sends the follow-up for you.
 
-[![tests](https://github.com/ltanh2710/dsh-encore/actions/workflows/test.yml/badge.svg)](../../actions/workflows/test.yml)
+[![tests](https://github.com/ltanh2710/dsh-encore/actions/workflows/test.yml/badge.svg)](https://github.com/ltanh2710/dsh-encore/actions/workflows/test.yml)
 ![license](https://img.shields.io/badge/license-MIT-111111)
 ![deps](https://img.shields.io/badge/dependencies-0-111111)
 

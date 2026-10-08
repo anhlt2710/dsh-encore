@@ -1,0 +1,11 @@
+# Home-level user patch layer ($DSH_HOME/cordis.patch.yml): applied over every
+# profile, so these rows are global. `dsh-hmr` watches this file and reloads it
+# live; no restart needed.
+#
+# If you already have rows in that file, append this entry to the existing list
+# instead of replacing it — the file must stay a top-level YAML array.
+- insert:
+    - id: dsh-encore
+      name: ./plugins/dsh-encore/index.mjs
+      config:
+        maxContinues: 5

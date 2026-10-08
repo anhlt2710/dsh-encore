@@ -96,7 +96,7 @@ Two different limits can end a turn, and they are **not** the same thing:
 | **Output cap** (`maxTokens`) | the reply is longer than the model may emit in one turn | **this plugin** |
 | **Context window** (`contextWindow`) | the whole conversation no longer fits in the prompt | DSH's built-in auto-compaction |
 
-The notice in the screenshot above — *Output token limit reached* — is the **output cap**. Auto-compaction
+The notice quoted at the top — *Output token limit reached* — is the **output cap**. Auto-compaction
 cannot prevent it, because compaction reduces how much history goes *in*, not how much the model may
 write *out*. That is why this plugin exists: compaction and `dsh-encore` cover different failures and
 you generally want both.
@@ -156,8 +156,6 @@ For the 300K config above that is `floor(min(240000, 168928))` = **168,928 token
 
 Both limits stay configurable independently, which is the point: compaction keeps the *input* fitting,
 `dsh-encore` keeps a cut-off *output* moving.
-
-
 
 ## How it is wired
 

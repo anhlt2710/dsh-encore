@@ -22,6 +22,46 @@ const CONTINUE_TEXT =
   'Finish the remaining work and report the result.'
 
 /**
+ * Re-arm an active but disarmed goal so its own driver queues the next round.
+ *
+ * The goal-round driver disarms on `max-tokens` itself (it is the only listener
+ * that does), which leaves the durable phase `active` with autonomous rounds
+ * stopped. Re-arming hands the continuation back to the driver, so exactly one
+ * prompt goes out and it is a real goal round — not a plain continuation
+ * competing with one.
+ *
+ * @param ctx - owning context.
+ * @param agent - exact live agent that just ended a capped turn.
+ * @returns whether the goal was resumed.
+ */
+function rearm(ctx, agent) {
+  // `goals` is read optionally on purpose. Reading `ctx.goals` without listing
+  // it in `inject` throws, and listing it would deactivate this row in every
+  // composition that ships no goal subsystem — but this plugin is a global
+  // safety net and must keep working there. The default strict read also
+  // reports `undefined` while the goal service is unloading, which keeps
+  // teardown from being called into.
+  const goals = ctx.reflect.get('goals')
+  if (goals === undefined) return false
+  let goal
+  try {
+    goal = goals.get(agent)
+  } catch {
+    return false // stale agent, or no goal subsystem behind the service
+  }
+  if (goal?.phase !== 'active' || goal.activation !== 'disarmed') return false
+  try {
+    goals.resume(agent, { id: goal.id, revision: goal.revision })
+    return true
+  } catch (error) {
+    // Stale revision, exhausted round cap, or a goal the user paused mid-turn:
+    // fall back to the plain continuation rather than losing the resume.
+    ctx.logger.warn(`dsh-encore: could not re-arm the goal for agent "${agent.id}": ${String(error)}`)
+    return false
+  }
+}
+
+/**
  * Install automatic continuation for every session in the process.
  * @param ctx - owning context.
  * @param config - `maxContinues`: consecutive capped turns to resume (default 5).
@@ -48,10 +88,13 @@ export function apply(ctx, config) {
     resumed.set(agent, attempt)
     // This listener runs inside the append that published the event, and the
     // loop has not published its idle phase yet: queueing synchronously would
-    // reenter the session append. setImmediate lands after both.
+    // reenter the session append. setImmediate lands after both — and after the
+    // goal-round driver's own synchronous `max-tokens` disarm, which is what
+    // `rearm` needs to see.
     setImmediate(() => {
       try {
         if (ctx.agents.get(agent.id) !== agent) return
+        if (rearm(ctx, agent)) return
         agent.followup({
           id: randomUUID(),
           role: 'user',

@@ -10,8 +10,10 @@ description: >
   resumed without typing "continue" by hand, and when the user asks about the
   output cap (maxTokens) versus the context window, auto-compaction, /compact,
   thresholdRatio, retainRatio or headroomTokens in DSH — this skill documents
-  both limits and which one dsh-encore actually reacts to. Only for DeepSeek
-  Harness — not for other agents.
+  both limits and which one dsh-encore actually reacts to. Also covers why a goal
+  stops advancing (the Goal dock showing "Inactive Goal") after an output-token
+  cut, and how dsh-encore re-arms it. Only for DeepSeek Harness — not for other
+  agents.
 argument-hint: "[install|verify|uninstall]"
 license: MIT
 ---
@@ -154,6 +156,32 @@ unattended, on the user's bill. After the ceiling the plugin stops, logs
 counter, so it is "in a row", not "per session". Do not raise it to make a looping model "finish" —
 that is a symptom, not a setting.
 
+## Goals — the cut also disarms them
+
+If the user runs goals and complains that a long goal "stopped by itself" or that the Goal dock shows
+*Inactive Goal* after a cut, this is why: the goal-round driver treats `turn/end` with reason
+`max-tokens` as a stop signal and **disarms** the goal. The durable phase stays `active` and the work
+is not lost, but no further rounds are queued until something re-arms it.
+
+`dsh-encore` handles that. Before sending its own continuation, it asks for the cut agent's goal; if
+there is one and it is `active` but `disarmed`, it calls `goals.resume` with the exact
+`{id, revision}` instead. The driver then queues the next round itself — exactly one prompt, a real
+goal round with the correct round number.
+
+Two things to know before debugging this path:
+
+- **`goals` is read through `ctx.reflect.get('goals')`, not `ctx.goals`, and is not in `inject`.**
+  Reading an uninjected service always throws; injecting it would deactivate the plugin in
+  compositions without the goal subsystem, defeating its purpose as a global safety net. If you are
+  editing the plugin, keep the optional read.
+- **Only `active` goals are re-armed.** `paused`, `blocked` and `complete` goals are left alone on
+  purpose — resuming a goal the user deliberately stopped would override their decision. Those turns
+  get the plain continuation instead.
+
+A failing `resume` (stale ref, spent round cap, goal paused mid-turn) is caught and logged, and the
+plain continuation goes out instead. A warning containing `could not re-arm the goal` in the log
+means the goal path was attempted and failed — the turn still resumed.
+
 ## When it does not fire
 
 In order of likelihood:
@@ -172,15 +200,19 @@ then delete `$DSH_HOME/plugins/dsh-encore/`. HMR applies it live.
 
 ## If you must change the plugin
 
-Read `index.mjs` first. Three invariants are load-bearing, and "simplifying" any of them breaks the
+Read `index.mjs` first. Four invariants are load-bearing, and "simplifying" any of them breaks the
 host:
 
 - **Trigger** stays `turn/end` + `reason.kind === 'max-tokens'`.
 - **`setImmediate`** stays. The listener runs inside the append publishing the event, and the loop has
   not published its idle phase; a synchronous `followup` reenters the session append and is rejected.
+  It is also what lands *after* the goal driver's own synchronous `max-tokens` disarm, which the
+  re-arm has to see.
 - **The try/catch** stays. A throw inside `setImmediate` is outside every loop frame and trips the
   host's fail-loud guard, killing the process.
+- **`ctx.reflect.get('goals')`** stays. Never `ctx.goals`, and never add `goals` to `inject`.
 
 Keep the agent lookup identity-checked, keep the counter bounded, keep `source.kind` distinct from
-`user` so a resumed turn is attributable rather than disguised as the human's own message. Change
+`user` so a resumed turn is attributable rather than disguised as the human's own message, and keep
+the goal re-arm ahead of the plain continuation with every failure falling back to it. Change
 behavior → change `index.test.mjs` in the same commit. `node:assert` only, no frameworks.

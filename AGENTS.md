@@ -5,7 +5,7 @@ load-bearing.
 
 ## The contract
 
-Three things must stay true, or the plugin silently stops working or breaks the host:
+Four things must stay true, or the plugin silently stops working or breaks the host:
 
 1. **The trigger is `turn/end` with `reason.kind === 'max-tokens'`.** That is the only durable signal
    that a turn was cut off. Do not switch to a UI hook or a token count.
@@ -15,6 +15,12 @@ Three things must stay true, or the plugin silently stops working or breaks the 
    this away.
 3. **`followup` failures are caught and logged.** A throw inside `setImmediate` sits outside every
    loop frame and trips the host's fail-loud guard, killing the process.
+4. **`goals` is read optionally, through `ctx.reflect.get('goals')`.** Never write `ctx.goals` here.
+   `goals` is deliberately absent from `inject`: reading a service that is not injected *always*
+   throws (`cannot get property "goals" without inject`), and injecting it would flip this row to
+   inactive in every composition that ships no goal subsystem — but this plugin is a global safety
+   net and must keep working there. The reflect read is non-throwing, returns `undefined` when the
+   service is absent *or* unloading, and leaves `inject = ['agents']` alone.
 
 ## Changing it
 
@@ -25,6 +31,11 @@ Three things must stay true, or the plugin silently stops working or breaks the 
   ceiling trips. An unbounded resume loop spends the user's money.
 - Keep the `source.kind` distinct from `user`. The resumed turn must be visibly attributable to the
   plugin, not disguised as something the human typed.
+- Keep the goal re-arm ahead of the plain continuation. When the agent has an `active` goal that a
+  cut left `disarmed`, resuming it hands the turn back to the goal-round driver, which is what keeps
+  a long goal advancing; only fall back to the plain continuation when there is no such goal. Any
+  failure in that path (stale ref, exhausted round cap, a goal paused mid-turn) must fall back
+  rather than throw — a lost resume is worse than a plain one.
 
 ## The check
 
@@ -36,7 +47,11 @@ node index.test.mjs
 
 It fakes a `ctx`, drives `turn/end` events, and asserts every branch: a completed turn does not
 continue, a capped turn does, the ceiling stops it, a normal turn resets the counter, unknown and
-stale sessions are ignored, and a bad `maxContinues` throws.
+stale sessions are ignored, and a bad `maxContinues` throws. It also covers the goal re-arm: an
+`active`+`disarmed` goal is resumed with its exact `{id, revision}` and no plain continuation is
+queued, an already-`armed` goal and every non-`active` phase fall through to the plain continuation,
+a composition with no `goals` service still continues, and a failing `resume` falls back with a
+warning.
 
 **Change behavior, change the test in the same commit.** No test framework, no fixtures, no
 dependencies — `node:assert` only. Keep it that way.

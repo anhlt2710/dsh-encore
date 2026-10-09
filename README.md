@@ -29,7 +29,7 @@ The harness ends a cut-off turn with a `turn/end` event whose reason is `max-tok
 stops. There is no built-in resume. `dsh-encore` listens for exactly that event and queues the same
 continuation the notice asks you to send by hand.
 
-One file. No dependencies. ~60 lines. This is the core of it, with the ceiling check elided:
+One file. No dependencies. ~110 lines. This is the core of it, with the ceiling check elided:
 
 ```mjs
 ctx.on('session/event', (session, event) => {
@@ -42,6 +42,7 @@ ctx.on('session/event', (session, event) => {
   }
   // …bounded by maxContinues, then:
   setImmediate(() => {
+    if (rearm(ctx, agent)) return          // an active goal resumes its own rounds
     agent.followup({
       id: randomUUID(),
       role: 'user',
@@ -51,6 +52,24 @@ ctx.on('session/event', (session, event) => {
   })
 })
 ```
+
+## Goals keep running
+
+If you use goals, the cut used to cost you more than a `continue`. The goal-round driver treats
+`max-tokens` as a stop signal and **disarms** the goal — its durable phase stays `active`, but no
+further rounds are queued, and the Goal dock sits on *Inactive Goal* until you press Resume. The
+work was not lost; the momentum was.
+
+`dsh-encore` now re-arms it. When the cut agent has an `active` goal left `disarmed`, the plugin
+calls `goals.resume` with the goal's exact `{id, revision}` instead of sending its own continuation.
+The driver picks it up and queues the next round itself, so you get exactly one prompt and it is a
+real goal round with the right round number — not a plain `continue` competing with one.
+
+`goals` is not in `inject`. Reading an uninjected service *always* throws, and injecting it would
+deactivate this plugin in every composition that ships no goal subsystem — which defeats a global
+safety net. It is read non-throwingly instead, and the whole path falls back to the plain
+continuation if the goal service is absent, the ref is stale, the round cap is spent, or the goal
+was paused mid-turn. A lost resume is worse than a plain one.
 
 ## Install
 
@@ -174,7 +193,8 @@ after both.
 **The message is attributed as `source: { kind: 'dsh-encore' }`.** Session format v4 accepts any
 non-empty source kind except `plugin`, and the Chat UI renders unknown kinds as an injected-context
 row. So a resumed turn is visibly marked as coming from this plugin, not disguised as something you
-typed — and it stays distinguishable in the durable log.
+typed — and it stays distinguishable in the durable log. (A re-armed goal sends no such message; its
+round arrives from the driver with `source.kind: 'goal'`.)
 
 ## Verify
 
@@ -198,10 +218,14 @@ renaming `index.mjs` produces exactly that failure, leaving it in place produces
 
 - **Applies to subagents too.** An in-process subagent is an agent in the same registry, so a capped
   subagent turn is resumed as well. Usually what you want.
+- **Re-arming needs the goal subsystem.** In a composition without it, a capped turn still gets the
+  plain continuation; there is just no goal to resume.
 - **No per-model or per-provider rules.** One ceiling for everything.
 - **No UI toggle.** Config lives in the patch file, on purpose.
 - **Only while the process is alive.** A closed session has nothing left to resume.
 - **The counter is per agent** and lives in a `WeakMap`, so it disappears with the agent.
+- **A `paused` or `blocked` goal stays that way.** Only an `active` goal is re-armed; re-arming a
+  goal you deliberately stopped would override your own decision.
 
 ## Uninstall
 

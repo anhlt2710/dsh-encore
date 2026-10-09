@@ -231,3 +231,4 @@ then delete `$DSH_HOME/plugins/dsh-encore/`. HMR applies it live.
 | Was working, stopped after a reinstall | The row was re-reconciled while the module was absent. Nudge `config`, or restart. |
 | Continues, then stops with a warning | Working as designed — `maxContinues` reached. |
 | Only some sessions resume | Sessions without a live agent cannot be resumed. |
+| Goal dock says *Inactive Goal* after a cut | The goal-round driver disarms a goal on `max-tokens`. `dsh-encore` re-arms an `active` goal automatically; a `paused`/`blocked` one is left alone on purpose. A `could not re-arm the goal` warning means the attempt failed and the plain continuation was sent instead. |

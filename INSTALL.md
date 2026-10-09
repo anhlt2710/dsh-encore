@@ -51,6 +51,12 @@ Open `$DSH_HOME/cordis.patch.yml` — create it if it does not exist — and add
         maxContinues: 5
 ```
 
+> **Order matters: the module must exist before the patch row does.** `dsh-hmr` watches the *patch
+> file*, not the plugin directory. If a row is reconciled while `index.mjs` is missing, the import
+> fails, the row stays inactive, and **nothing retries it** — not re-saving the patch, not the file
+> appearing a second later. Finish step 1 before this step. If you already did it backwards, see
+> [Recovering a row that never activated](#recovering-a-row-that-never-activated).
+
 **If the file already exists with rows in it, append this entry to the existing list. Do not replace
 the file.** The patch is a top-level YAML array; each `- insert:` is one element. Two rows look like
 this:
@@ -153,6 +159,27 @@ instead.
 
 ---
 
+## Recovering a row that never activated
+
+If the patch row was written while `index.mjs` was missing (or the module was moved, renamed, or
+broken at the moment the row was reconciled), the row failed its import and went inert. **Re-saving
+the patch does not fix it** — the reconciler sees identical options for an entry it already knows
+about and skips the reload. `dsh-hmr` watches config files only, so the module appearing later is
+invisible to it.
+
+The fix is to make the row's options *change*, which forces a fresh import:
+
+1. Confirm `index.mjs` is present and passes the self-check (step 3).
+2. In `$DSH_HOME/cordis.patch.yml`, change the row's `config` — e.g. `maxContinues: 5` → `6`.
+3. Save. HMR re-imports the module and the row activates.
+4. Set `maxContinues` back to the value you want (a second edit, also live).
+5. Confirm with the boot-log check in step 5, or by triggering a capped turn.
+
+A restart of the app always works too, since boot re-reads the patch from scratch — do that if you
+are unsure whether the live reconcile took.
+
+---
+
 ## 6. See it work
 
 Ask the model for something long enough to exceed the output-token cap. When the turn is cut off, the
@@ -162,9 +189,11 @@ injected context rather than as a message from you.
 If it does not fire, in order of likelihood:
 
 1. The row never activated — do step 5 properly.
-2. The app predates the patch file — restart it.
-3. `maxContinues` was already exhausted — look for the `hit the output-token cap` warning.
-4. The model finished inside the cap, so nothing was cut off and nothing needed resuming.
+2. The row went inert at install time because the module was missing when the patch was first
+   reconciled — see [Recovering a row that never activated](#recovering-a-row-that-never-activated).
+3. The app predates the patch file — restart it.
+4. `maxContinues` was already exhausted — look for the `hit the output-token cap` warning.
+5. The model finished inside the cap, so nothing was cut off and nothing needed resuming.
 
 If it *never* fires and the model keeps stopping early, check which limit you are actually hitting.
 `dsh-encore` reacts to the **output cap** (`maxTokens` on the model route) — not the **context window**.
@@ -198,6 +227,7 @@ then delete `$DSH_HOME/plugins/dsh-encore/`. HMR applies it live.
 |---|---|
 | `must be a top-level YAML array` on boot | Patch file empty or comments-only. Write `[]` or real rows. |
 | `dsh-encore (…): failed to import` | Wrong path in the patch, or the clone landed elsewhere. |
-| Boots fine, never continues | Row inactive (check for the warning) or the app predates the patch. |
+| Boots fine, never continues | Row inactive. Either the module was missing when the row was first reconciled (see [Recovering a row that never activated](#recovering-a-row-that-never-activated)) or the app predates the patch. |
+| Was working, stopped after a reinstall | The row was re-reconciled while the module was absent. Nudge `config`, or restart. |
 | Continues, then stops with a warning | Working as designed — `maxContinues` reached. |
 | Only some sessions resume | Sessions without a live agent cannot be resumed. |

@@ -57,6 +57,12 @@ the layer, write `[]`.
 The relative `name` resolves next to the patch file. Use an absolute path only if the plugin lives
 elsewhere.
 
+> **Write the module before the row.** `dsh-hmr` watches the *patch file*, not the plugin directory.
+> A row reconciled while `index.mjs` is missing fails its import and goes permanently inert —
+> re-saving the patch does **not** retry it, and neither does the module appearing a moment later.
+> If you find a dead row, make its `config` differ (bump `maxContinues`, then set it back) to force a
+> re-import, or restart the app.
+
 ## Verify — do not skip this
 
 An unreachable module leaves an **inactive row** and the app boots normally. So "it started fine" is
@@ -153,9 +159,11 @@ that is a symptom, not a setting.
 In order of likelihood:
 
 1. The row never activated — do the boot-log check, not a glance at the config.
-2. The app predates the patch file — restart.
-3. `maxContinues` was already exhausted — look for the cap warning.
-4. The model finished inside the cap — nothing was cut off, so nothing needed resuming.
+2. The row went inert at install time because the module was missing when the patch was first
+   reconciled. Touching the file will not fix it — change `config` or restart.
+3. The app predates the patch file — restart.
+4. `maxContinues` was already exhausted — look for the cap warning.
+5. The model finished inside the cap — nothing was cut off, so nothing needed resuming.
 
 ## Uninstall
 

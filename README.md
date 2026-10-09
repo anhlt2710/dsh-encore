@@ -71,6 +71,11 @@ Then add the row to `$DSH_HOME/cordis.patch.yml`:
 Restart the app once. That is the whole install. Step by step for a fresh machine, including how to
 check it actually loaded: **[INSTALL.md](INSTALL.md)**.
 
+**Clone before you patch.** `dsh-hmr` watches the patch file, not the plugin directory, so a row
+reconciled while `index.mjs` is missing goes permanently inert — re-saving the patch will not retry
+it. Already done it backwards? See
+[Recovering a row that never activated](INSTALL.md#recovering-a-row-that-never-activated).
+
 `$DSH_HOME` defaults to `~/.dsh`. The patch file is the **home layer**, so the row applies to every
 profile (Desktop, Web, Headless), every workspace, and every session — not just one project.
 
